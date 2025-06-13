@@ -11,39 +11,55 @@ import os
 # 因此，我们在此处重新定义或复制必要的功能
 
 def 加载词表(路径):
-    """加载词表文件，返回 token -> id 的映射字典。"""
+    """加载词表文件，使用eval正确解析带空格的token。"""
     词表 = {}
-    反向词表 = {}
     with open(路径, 'r', encoding='utf-8') as f:
         for line in f:
             try:
-                parts = line.strip().split(' ', 2)
-                token_id = int(parts[0])
-                token_str = parts[1].strip("'")
+                # 采用更健壮的解析方式
+                idx_part = line[:line.index(' ')]
+                len_part = line[line.rindex(' '):]
+                str_part = line[line.index(' '):line.rindex(' ')].strip()
+                
+                token_id = int(idx_part)
+                token_str = eval(str_part)  # eval能正确处理如"'token '"这样的字符串
+                
                 词表[token_str] = token_id
-                反向词表[token_id] = token_str
-            except (ValueError, IndexError):
+            except (ValueError, IndexError, SyntaxError):
                 logger.warning(f"无法解析词表行: {line.strip()}")
-    return 词表, 反向词表
+    return 词表
+
+def 文本转ID序列(text, 词表):
+    """使用贪心最长匹配算法将文本字符串转换回ID序列。"""
+    ids = []
+    idx = 0
+    while idx < len(text):
+        longest_match = ""
+        # 寻找从当前位置开始的最长匹配token
+        for token_str in 词表.keys():
+            if text.startswith(token_str, idx):
+                if len(token_str) > len(longest_match):
+                    longest_match = token_str
+        
+        if longest_match:
+            ids.append(词表[longest_match])
+            idx += len(longest_match)
+        else:
+            # 正常情况下不应发生，因为我们的文本就是由词表token构成的
+            logger.error(f"致命错误：在位置 {idx} 找不到匹配的token: '{text[idx:idx+20]}...'")
+            # 为避免无限循环，跳过一个字符
+            idx += 1
+    return ids
 
 def 加载测试数据(路径, 词表):
-    """直接加载预处理好的jsonl测试数据，并转换为ID序列。"""
+    """直接加载预处理好的jsonl测试数据，并使用最长匹配算法转换为ID序列。"""
     序列列表 = []
     with open(路径, 'r', encoding='utf-8') as f:
         for line in f:
             text = json.loads(line)['text']
-            # 因为token自带空格，我们用空字符串来分割
-            tokens = text.split(' ')
-            # 最后一个token是目标，前面的token（加上它们自带的空格）是特征
-            特征部分 = [t + ' ' for t in tokens[:-2]] + [tokens[-2]]
-            目标 = tokens[-1]
-            
-            try:
-                特征_ids = [词表[t] for t in 特征部分]
-                目标_id = 词表[目标]
-                序列列表.append(特征_ids + [目标_id])
-            except KeyError as e:
-                logger.warning(f"在词表中找不到token: {e}，跳过此行。")
+            sequence_ids = 文本转ID序列(text, 词表)
+            if sequence_ids:
+                序列列表.append(sequence_ids)
     return 序列列表
 
 def 主函数(args):
@@ -57,9 +73,9 @@ def 主函数(args):
     logger.info("1. 加载模型和词表...")
     模型 = AutoModelForCausalLM.from_pretrained(args.model_name).to(args.dtype).to(设备)
     模型.eval()
-    词表, 反向词表 = 加载词表(args.vocab_path)
+    词表 = 加载词表(args.vocab_path)
 
-    logger.info("2. 加载预处理的测试数据...")
+    logger.info("2. 加载并解析预处理的测试数据...")
     测试序列 = 加载测试数据(args.test_data_path, 词表)
     if not 测试序列:
         logger.error("未能加载任何测试数据，程序退出。")
