@@ -40,7 +40,7 @@ uv run python main.py
 
 **a. 导出数据**
 
-运行以下命令，它会在 `external_pipeline/` 目录下生成 `train_data.jsonl`, `vocab.txt`, 和 `bins.json` 文件。
+运行以下命令，它会在 `external_pipeline/` 目录下生成 `train_data.jsonl`, `test_data.jsonl`, `vocab.txt`, 和 `bins.json` 文件。
 ```bash
 uv run python external_pipeline/导出数据.py
 ```
@@ -51,7 +51,7 @@ uv run python external_pipeline/导出数据.py
 
 **c. 评估外部模型**
 
-在你训练好模型并将其保存后（例如，保存为 `my_model`），运行以下命令进行评估。
+在你训练好模型并将其保存后（例如，保存为 `my_model`），运行以下命令进行评估。该脚本会默认使用同目录下的 `test_data.jsonl` 和 `vocab.txt`。
 ```bash
 # 评估保存在本地路径的模型
 uv run python external_pipeline/评估外部模型.py ./path/to/my_model
