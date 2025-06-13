@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
+from transformers.optimization import get_linear_schedule_with_warmup
 from loguru import logger
 from functools import partial
 
@@ -14,14 +15,15 @@ def 主函数():
     随机种子 = 42
     批次大小 = 16
     学习率 = 5e-5
-    训练周期 = 3
+    训练周期 = 10
+    数值分箱数量 = 50
     设备 = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info(f"使用设备: {设备}")
 
     # --- 1. 加载和预处理数据 ---
     logger.info("步骤 1: 加载和预处理数据...")
     训练序列, 测试序列, 词表, raw_data = 获取训练和测试数据(
-        测试集比例=测试集比例, 随机种子=随机种子
+        测试集比例=测试集比例, 随机种子=随机种子, 分箱数量=数值分箱数量
     )
     训练数据, 测试数据, 数值型列, 类别型列 = raw_data
     pad_token_id = 词表['[PAD]']
@@ -43,10 +45,18 @@ def 主函数():
     模型 = 创建模型(len(词表))
     优化器 = AdamW(模型.parameters(), lr=学习率)
 
-    # c. 训练模型
-    训练模型(模型, 训练加载器, 优化器, 设备, 周期=训练周期)
+    # c. 创建学习率调度器
+    总训练步数 = len(训练加载器) * 训练周期
+    调度器 = get_linear_schedule_with_warmup(
+        优化器,
+        num_warmup_steps=0,
+        num_training_steps=总训练步数
+    )
 
-    # d. 评估模型
+    # d. 训练模型
+    训练模型(模型, 训练加载器, 优化器, 调度器, 设备, 周期=训练周期)
+
+    # e. 评估模型
     transformer_accuracy = 评估模型(模型, 测试序列, 词表, 设备)
     logger.info("Transformer 模型运行完毕。")
 

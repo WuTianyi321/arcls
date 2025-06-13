@@ -1,6 +1,9 @@
-def main():
-    print("Hello from arcls!")
-
+from src.主程序 import 主函数
 
 if __name__ == "__main__":
-    main()
+    """
+    项目的主入口点。
+    这个文件使得我们可以用一个简单的 `python main.py` 命令来启动整个程序，
+    同时保持了代码在 `src` 目录下的良好组织结构。
+    """
+    主函数()

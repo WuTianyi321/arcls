@@ -14,5 +14,5 @@
 
 2.  **运行主程序:**
     ```bash
-    uv run python -m src.主程序
+    uv run python main.py
     ```

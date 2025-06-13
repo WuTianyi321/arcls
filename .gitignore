@@ -1,10 +1,24 @@
 # Python-generated files
 __pycache__/
-*.py[oc]
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build and distribution
 build/
 dist/
 wheels/
 *.egg-info
 
-# Virtual environments
-.venv
+# CatBoost temporary files
+catboost_info/
+
+# IDE & editor configurations
+.vscode/
+.idea/
+.DS_Store
