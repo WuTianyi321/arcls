@@ -17,6 +17,7 @@ dependencies = [
     "loguru>=0.7.2",
     "accelerate>=0.30.1",
     "tiktoken>=0.7.0",
+    "flash-linear-attention>=0.2.2",
 ]
 requires-python = ">=3.10"
 

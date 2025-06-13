@@ -1,3 +1,4 @@
+import fla
 import torch
 import json
 import argparse
