@@ -18,6 +18,11 @@ wheels/
 # CatBoost temporary files
 catboost_info/
 
+# External pipeline outputs
+external_pipeline/*.jsonl
+external_pipeline/*.txt
+external_pipeline/*.json
+
 # IDE & editor configurations
 .vscode/
 .idea/
