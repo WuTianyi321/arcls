@@ -80,7 +80,7 @@ def 主函数():
             else:
                 final_token_str = token_str + " "
             
-            f.write(f"{token_id + 1} '{final_token_str}' {len(final_token_str)}\n")
+            f.write(f"{token_id + 1} '{final_token_str}' {len(final_token_str.encode('utf-8'))}\n")
             
     logger.info(f"词表已写入到 {输出文件_词表}")
 
