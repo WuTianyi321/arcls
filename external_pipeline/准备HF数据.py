@@ -80,16 +80,22 @@ def 主函数():
 
     logger.info("4. 使用新分词器编码数据...")
     训练输出路径 = os.path.join(输出目录, "train_data.jsonl")
+    训练最长序列 = 0
     with open(训练输出路径, "w", encoding="utf-8") as 文件:
         for 文本 in 训练字符串列表:
             编码结果 = 分词器.encode(文本, add_special_tokens=False)
+            if len(编码结果.ids) > 训练最长序列:
+                训练最长序列 = len(编码结果.ids)
             文件.write(json.dumps({"text": 文本, "token_ids": 编码结果.ids}, ensure_ascii=False) + "\n")
 
     测试字符串列表 = 数据帧转为字符串列表(测试数据, 数值型列, 类别型列)
     测试输出路径 = os.path.join(输出目录, "test_data.jsonl")
+    测试最长序列 = 0
     with open(测试输出路径, "w", encoding="utf-8") as 文件:
         for 文本 in 测试字符串列表:
             编码结果 = 分词器.encode(文本, add_special_tokens=False)
+            if len(编码结果.ids) > 测试最长序列:
+                测试最长序列 = len(编码结果.ids)
             文件.write(json.dumps({"text": 文本, "token_ids": 编码结果.ids}, ensure_ascii=False) + "\n")
 
     logger.info("5. 生成与外部流水线完全兼容的vocab.txt...")
@@ -131,8 +137,9 @@ def 主函数():
             # 使用空格分隔，但确保格式正确：索引 词元表示 字节长度
             文件.write(f"{行索引} {用于评估的词元} {字节长度}\n")
     
-    # 清理临时文件
-    os.remove(语料库路径)
+    logger.info(f"训练集最长序列: {训练最长序列}")
+    logger.info(f"测试集最长序列: {测试最长序列}")
+    logger.info(f"最大序列长度: {max(训练最长序列, 测试最长序列)}")
     logger.info(f"临时语料库文件 '{语料库路径}' 已删除。")
     logger.info("最终数据准备流程完成！")
 
