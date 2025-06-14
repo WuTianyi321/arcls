@@ -38,7 +38,7 @@ def 评估(predictions_path: str, test_data_path: str, tokenizer_path: str):
         for line in f:
             data = json.loads(line)
             # 真实目标是token_ids序列的倒数第二个元素，最后一个是</s>
-            true_labels.append(data["token_ids"][-2])
+            true_labels.append(data["token_ids"][-1])
 
     logger.info(f"3. 加载模型预测于: {predictions_path}")
     if not os.path.exists(predictions_path):

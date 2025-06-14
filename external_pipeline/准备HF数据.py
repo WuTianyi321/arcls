@@ -19,8 +19,9 @@ def 数据帧转为字符串列表(数据帧, 数值型列, 类别型列):
         特征部分列表 = []
         for 列名 in 数值型列 + 类别型列:
             特征部分列表.append(f"{列名}={单行数据[列名]}")
+        # 特征之间空格分隔，最后直接接[TARGET_x]
         特征字符串 = " ".join(特征部分列表)
-        最终字符串 = f"[CLS] {特征字符串} [SEP] [TARGET_{单行数据['收入']}] </s>"
+        最终字符串 = f"{特征字符串} [TARGET_{单行数据['收入']}]"
         字符串行列表.append(最终字符串)
     return 字符串行列表
 
@@ -45,7 +46,7 @@ def 主函数():
             文件.write(行 + "\n")
 
     logger.info("3. 训练Byte-Level BPE分词器...")
-    特殊Token列表 = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "</s>", "[TARGET_0]", "[TARGET_1]"]
+    特殊Token列表 = ["[PAD]", "[UNK]", "[TARGET_0]", "[TARGET_1]"]
     
     分词器 = ByteLevelBPETokenizer()
     分词器.train(
@@ -81,14 +82,14 @@ def 主函数():
     训练输出路径 = os.path.join(输出目录, "train_data.jsonl")
     with open(训练输出路径, "w", encoding="utf-8") as 文件:
         for 文本 in 训练字符串列表:
-            编码结果 = 分词器.encode(文本)
+            编码结果 = 分词器.encode(文本, add_special_tokens=False)
             文件.write(json.dumps({"text": 文本, "token_ids": 编码结果.ids}, ensure_ascii=False) + "\n")
 
     测试字符串列表 = 数据帧转为字符串列表(测试数据, 数值型列, 类别型列)
     测试输出路径 = os.path.join(输出目录, "test_data.jsonl")
     with open(测试输出路径, "w", encoding="utf-8") as 文件:
         for 文本 in 测试字符串列表:
-            编码结果 = 分词器.encode(文本)
+            编码结果 = 分词器.encode(文本, add_special_tokens=False)
             文件.write(json.dumps({"text": 文本, "token_ids": 编码结果.ids}, ensure_ascii=False) + "\n")
 
     logger.info("5. 生成与外部流水线完全兼容的vocab.txt...")
