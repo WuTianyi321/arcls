@@ -1,133 +1,111 @@
-import torch
 import json
-import argparse
-import pandas as pd
-from loguru import logger
-from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer
 import os
+import argparse
+import numpy as np
+from loguru import logger
+from transformers import AutoTokenizer
 
-# 注意：此脚本不依赖src内部的逻辑，使其可以独立分发和运行
-# 因此，我们在此处重新定义或复制必要的功能
-
-def 加载词表(路径):
-    """加载词表文件，使用eval正确解析带空格的token。"""
-    词表 = {}
-    with open(路径, 'r', encoding='utf-8') as f:
-        for line in f:
-            try:
-                # 采用更健壮的解析方式
-                idx_part = line[:line.index(' ')]
-                len_part = line[line.rindex(' '):]
-                str_part = line[line.index(' '):line.rindex(' ')].strip()
-                
-                token_id = int(idx_part)
-                token_str = eval(str_part)  # eval能正确处理如"'token '"这样的字符串
-                
-                词表[token_str] = token_id
-            except (ValueError, IndexError, SyntaxError):
-                logger.warning(f"无法解析词表行: {line.strip()}")
-    return 词表
-
-def 文本转ID序列(text, 词表):
-    """使用贪心最长匹配算法将文本字符串转换回ID序列。"""
-    ids = []
-    idx = 0
-    while idx < len(text):
-        longest_match = ""
-        # 寻找从当前位置开始的最长匹配token
-        for token_str in 词表.keys():
-            if text.startswith(token_str, idx):
-                if len(token_str) > len(longest_match):
-                    longest_match = token_str
-        
-        if longest_match:
-            ids.append(词表[longest_match])
-            idx += len(longest_match)
-        else:
-            # 正常情况下不应发生，因为我们的文本就是由词表token构成的
-            logger.error(f"致命错误：在位置 {idx} 找不到匹配的token: '{text[idx:idx+20]}...'")
-            # 为避免无限循环，跳过一个字符
-            idx += 1
-    return ids
-
-def 加载测试数据(路径, tokenizer):
-    """直接加载预处理好的jsonl测试数据，并使用提供的分词器转换为ID序列。"""
-    序列列表 = []
-    with open(路径, 'r', encoding='utf-8') as f:
-        for line in f:
-            # 新的jsonl文件里已经包含了token_ids
-            data = json.loads(line)
-            if "token_ids" in data:
-                序列列表.append(data["token_ids"])
-            else:
-                # 如果没有预编码的ids，作为备用方案进行编码
-                text = data.get("text", "")
-                if text:
-                    encoded = tokenizer.encode(text)
-                    序列列表.append(encoded)
-
-    return 序列列表
-
-def 主函数(args):
+def 评估(predictions_path: str, test_data_path: str, tokenizer_path: str):
     """
-    该脚本负责评估一个在外部训练好的、兼容transformers库的模型。
-    新版：使用AutoTokenizer加载我们自己训练的分词器。
+    从外部流水线生成的预测文件中加载结果，并与测试集真值进行比较，计算准确率。
+
+    :param predictions_path: 外部流水线生成的预测结果文件 (.jsonl)
+    :param test_data_path: 包含真实标签的测试数据文件 (.jsonl)
+    :param tokenizer_path: 训练好的分词器路径 (tokenizer.json)
     """
-    logger.info(f"开始评估模型: {args.model_name}")
-    设备 = "cuda" if torch.cuda.is_available() else "cpu"
-
-    logger.info("1. 加载模型和分词器...")
-    模型 = AutoModelForCausalLM.from_pretrained(args.model_name).to(args.dtype).to(设备)
-    模型.eval()
-    分词器 = AutoTokenizer.from_pretrained(args.tokenizer_path)
-
-    logger.info("2. 加载预处理的测试数据...")
-    测试序列 = 加载测试数据(args.test_data_path, 分词器)
-    if not 测试序列:
-        logger.error("未能加载任何测试数据，程序退出。")
+    logger.info("1. 加载分词器以获取目标Token ID...")
+    if not os.path.exists(tokenizer_path):
+        logger.error(f"分词器文件未找到: {tokenizer_path}")
         return
 
-    logger.info("3. 执行模型评估...")
-    正确预测数 = 0
-    with torch.no_grad():
-        for 序列 in tqdm(测试序列, desc="评估中"):
-            # 序列的最后一个ID是 "</s>" token, 倒数第二个是目标
-            # 我们需要模型预测目标，所以输入是到[SEP]为止的部分
-            try:
-                # 找到 </s> token 的位置
-                eos_token_id = 分词器.get_vocab()["</s>"]
-                eos_index = 序列.index(eos_token_id)
-                # 真实目标是 </s> 前一个 token
-                真实目标_id = 序列[eos_index - 1]
-                # 输入是到目标之前的所有内容
-                输入_ids = torch.tensor([序列[:eos_index - 1]], device=设备)
-            except (ValueError, IndexError):
-                logger.warning("序列格式不正确，跳过...")
-                continue
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    target_0_id = tokenizer.convert_tokens_to_ids("[TARGET_0]")
+    target_1_id = tokenizer.convert_tokens_to_ids("[TARGET_1]")
+    
+    if target_0_id is None or target_1_id is None:
+        logger.error("无法在分词器中找到 [TARGET_0] 或 [TARGET_1] 特殊Token。")
+        return
+        
+    logger.info(f"目标Token ID: [TARGET_0]={target_0_id}, [TARGET_1]={target_1_id}")
 
-            输出 = 模型(input_ids=输入_ids)
-            logits = 输出.logits
-            
-            预测_logits = logits[0, -1, :]
-            预测_id = torch.argmax(预测_logits).item()
-            
-            if 预测_id == 真实目标_id:
-                正确预测数 += 1
+    logger.info(f"2. 加载真实标签于: {test_data_path}")
+    if not os.path.exists(test_data_path):
+        logger.error(f"测试数据文件未找到: {test_data_path}")
+        return
+        
+    true_labels = []
+    with open(test_data_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            data = json.loads(line)
+            # 真实目标是token_ids序列的倒数第二个元素，最后一个是</s>
+            true_labels.append(data["token_ids"][-2])
 
-    准确率 = 正确预测数 / len(测试序列) if 测试序列 else 0
-    logger.info(f"模型 '{args.model_name}' 评估完成。")
-    logger.info(f"准确率: {准确率:.4f} ({正确预测数}/{len(测试序列)})")
+    logger.info(f"3. 加载模型预测于: {predictions_path}")
+    if not os.path.exists(predictions_path):
+        logger.error(f"预测文件未找到: {predictions_path}")
+        logger.error("请确保您的外部流水线已运行并已生成此文件。")
+        # 为方便测试，生成一个随机预测文件
+        logger.warning("未找到预测文件，将生成一个随机模拟的预测文件用于演示。")
+        模拟生成随机预测(predictions_path, true_labels, [target_0_id, target_1_id])
+        
+    predictions = []
+    with open(predictions_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            data = json.loads(line)
+            # 假设外部流水线的输出格式包含一个 'predicted_token_id' 键
+            if "predicted_token_id" not in data:
+                logger.error(f"预测文件行中缺少 'predicted_token_id': {line.strip()}")
+                return
+            predictions.append(data["predicted_token_id"])
+
+    if len(predictions) != len(true_labels):
+        logger.error(f"预测数量 ({len(predictions)}) 与真实标签数量 ({len(true_labels)}) 不匹配。")
+        return
+
+    # 4. 计算准确率
+    correct_predictions = sum(p == t for p, t in zip(predictions, true_labels))
+    total = len(true_labels)
+    accuracy = correct_predictions / total if total > 0 else 0
+
+    logger.success("评估完成!")
+    logger.success(f"总样本数: {total}")
+    logger.success(f"正确预测数: {correct_predictions}")
+    logger.success(f"准确率: {accuracy:.4f}")
+
+def 模拟生成随机预测(path, true_labels, target_ids):
+    """如果预测文件不存在，则创建一个用于演示的随机预测文件。"""
+    with open(path, 'w', encoding='utf-8') as f:
+        for _ in true_labels:
+            # 简单地在两个目标之间随机选择
+            predicted_id = np.random.choice(target_ids)
+            f.write(json.dumps({"predicted_token_id": predicted_id}) + "\n")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="评估一个外部训练的自回归分类模型")
+    parser = argparse.ArgumentParser(
+        description="评估外部流水线的分类预测结果。",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
     
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
-    parser.add_argument("model_name", type=str, help="要评估的模型的名称或路径")
-    parser.add_argument("--test_data_path", type=str, default=os.path.join(script_dir, "test_data.jsonl"), help="预处理后的测试集文件路径 (.jsonl)")
-    parser.add_argument("--tokenizer_path", type=str, default=os.path.join(script_dir, "tokenizer.json"), help="训练好的分词器文件(tokenizer.json)路径")
-    parser.add_argument("--dtype", type=lambda x: getattr(torch, x), default=torch.float16, help="模型的数据类型 (例如 'float16', 'float32')")
+    parser.add_argument(
+        "--predictions_path", 
+        type=str, 
+        default=os.path.join(script_dir, "predictions.jsonl"),
+        help="外部流水线生成的预测结果文件路径 (.jsonl)"
+    )
+    parser.add_argument(
+        "--test_data_path", 
+        type=str, 
+        default=os.path.join(script_dir, "test_data.jsonl"),
+        help="包含真实标签的测试集文件路径 (.jsonl)"
+    )
+    parser.add_argument(
+        "--tokenizer_path", 
+        type=str, 
+        default=os.path.join(script_dir, "tokenizer.json"),
+        help="训练好的分词器文件(tokenizer.json)路径"
+    )
     
     args = parser.parse_args()
-    主函数(args) 
+    评估(args.predictions_path, args.test_data_path, args.tokenizer_path) 

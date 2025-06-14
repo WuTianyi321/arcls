@@ -5,29 +5,64 @@ import numpy as np
 
 pd.options.mode.copy_on_write = True
 
-def 获取数据():
-    url = "https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data"
+def 获取数据(分箱数=50):
+    logger.info("开始加载和预处理数据...")
+    
     列名 = [
-        "年龄", "工作类型", "fnlwgt", "教育", "教育年数", "婚姻状况",
-        "职业", "亲属关系", "种族", "性别", "资本利得", "资本损失",
-        "周工作小时数", "原籍国", "收入"
+        "年龄", "工作类型", "fnlwgt", "教育", "教育年数", 
+        "婚姻状况", "职业", "亲属关系", "种族", "性别", 
+        "资本利得", "资本损失", "周工作小时数", "原籍国", "收入"
     ]
-    数据 = pd.read_csv(url, header=None, names=列名, sep=r",\s*", engine="python", na_values="?")
+    
+    try:
+        数据 = pd.read_csv(
+            "https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data",
+            header=None,
+            names=列名,
+            sep=r',\s*',
+            na_values="?",
+            engine='python'
+        )
+        测试数据 = pd.read_csv(
+            "https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.test",
+            header=None,
+            names=列名,
+            sep=r',\s*',
+            skiprows=1,
+            na_values="?",
+            engine='python'
+        )
+    except Exception as e:
+        logger.error(f"从URL加载数据失败，请检查网络连接或URL地址。错误: {e}")
+        return None, None, None
+
+    数据 = pd.concat([数据, 测试数据], ignore_index=True)
     数据.dropna(inplace=True)
 
-    数值型列 = 数据.select_dtypes(include=np.number).columns.tolist()
-    数值型列.remove("教育年数") # 这个和"教育"高度相关，移除一个
+    数据['收入'] = 数据['收入'].apply(lambda x: 1 if x in ('>50K', '>50K.') else 0)
 
-    类别型列 = 数据.select_dtypes(include="object").columns.tolist()
-    类别型列.remove("收入")
+    数值型列 = 数据.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    数值型列.remove('收入')
+    
+    logger.info(f"对以下数值型特征进行分箱处理 (分箱数={分箱数}): {数值型列}")
+    for 列 in 数值型列:
+        try:
+            # 使用qcut进行分位数分箱，并处理重复边界问题
+            数据[f"{列}_箱"] = pd.qcut(数据[列], q=分箱数, labels=False, duplicates='drop')
+        except ValueError:
+            # 如果qcut失败（例如，列中唯一值太少），则使用普通cut
+            logger.warning(f"列 '{列}' 的分位数分箱失败，尝试等宽分箱...")
+            数据[f"{列}_箱"] = pd.cut(数据[列], bins=分箱数, labels=False)
+    
+    # 用分箱后的列替换原始数值列
+    新的数值型列 = [f"{列}_箱" for 列 in 数值型列]
+    类别型列 = 数据.select_dtypes(include=['object']).columns.tolist()
 
-    数据["收入"] = 数据["收入"].apply(lambda x: 1 if x == ">50K" else 0)
-
-    logger.info(f"数据集加载完成，共 {len(数据)} 条记录")
-    logger.info(f"数值型特征: {数值型列}")
-    logger.info(f"类别型特征: {类别型列}")
-
-    return 数据, 数值型列, 类别型列
+    logger.info("数据预处理完成。")
+    
+    # 只返回需要的列
+    最终列 = 新的数值型列 + 类别型列 + ['收入']
+    return 数据[最终列], 新的数值型列, 类别型列
 
 def 创建词表和分箱(数据, 数值型列, 类别型列, 分箱数量):
     词表 = {
@@ -103,4 +138,13 @@ def 获取训练和测试数据(测试集比例=0.2, 随机种子=42, 分箱数�
     训练序列, _ = 序列化数据(训练数据, 数值型列, 类别型列, 词表, 分箱信息)
     测试序列, _ = 序列化数据(测试数据, 数值型列, 类别型列, 词表, 分箱信息)
 
-    return 训练序列, 测试序列, 词表, (训练数据, 测试数据, 数值型列, 类别型列) 
+    return 训练序列, 测试序列, 词表, (训练数据, 测试数据, 数值型列, 类别型列)
+
+if __name__ == '__main__':
+    数据, 数值型列, 类别型列 = 获取数据()
+    if 数据 is not None:
+        print("数据加载成功!")
+        print("处理后数据预览:")
+        print(数据.head())
+        print("\n数值型列 (已分箱):", 数值型列)
+        print("类别型列:", 类别型列) 
