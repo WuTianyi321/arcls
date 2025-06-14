@@ -1,11 +1,10 @@
-import fla
 import torch
 import json
 import argparse
 import pandas as pd
 from loguru import logger
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
 import os
 
 # 注意：此脚本不依赖src内部的逻辑，使其可以独立分发和运行
@@ -52,32 +51,39 @@ def 文本转ID序列(text, 词表):
             idx += 1
     return ids
 
-def 加载测试数据(路径, 词表):
-    """直接加载预处理好的jsonl测试数据，并使用最长匹配算法转换为ID序列。"""
+def 加载测试数据(路径, tokenizer):
+    """直接加载预处理好的jsonl测试数据，并使用提供的分词器转换为ID序列。"""
     序列列表 = []
     with open(路径, 'r', encoding='utf-8') as f:
         for line in f:
-            text = json.loads(line)['text']
-            sequence_ids = 文本转ID序列(text, 词表)
-            if sequence_ids:
-                序列列表.append(sequence_ids)
+            # 新的jsonl文件里已经包含了token_ids
+            data = json.loads(line)
+            if "token_ids" in data:
+                序列列表.append(data["token_ids"])
+            else:
+                # 如果没有预编码的ids，作为备用方案进行编码
+                text = data.get("text", "")
+                if text:
+                    encoded = tokenizer.encode(text)
+                    序列列表.append(encoded)
+
     return 序列列表
 
 def 主函数(args):
     """
     该脚本负责评估一个在外部训练好的、兼容transformers库的模型。
-    新版：直接读取预处理和划分好的测试集。
+    新版：使用AutoTokenizer加载我们自己训练的分词器。
     """
     logger.info(f"开始评估模型: {args.model_name}")
     设备 = "cuda" if torch.cuda.is_available() else "cpu"
 
-    logger.info("1. 加载模型和词表...")
+    logger.info("1. 加载模型和分词器...")
     模型 = AutoModelForCausalLM.from_pretrained(args.model_name).to(args.dtype).to(设备)
     模型.eval()
-    词表 = 加载词表(args.vocab_path)
+    分词器 = AutoTokenizer.from_pretrained(args.tokenizer_path)
 
-    logger.info("2. 加载并解析预处理的测试数据...")
-    测试序列 = 加载测试数据(args.test_data_path, 词表)
+    logger.info("2. 加载预处理的测试数据...")
+    测试序列 = 加载测试数据(args.test_data_path, 分词器)
     if not 测试序列:
         logger.error("未能加载任何测试数据，程序退出。")
         return
@@ -86,8 +92,19 @@ def 主函数(args):
     正确预测数 = 0
     with torch.no_grad():
         for 序列 in tqdm(测试序列, desc="评估中"):
-            真实目标_id = 序列[-1]
-            输入_ids = torch.tensor([序列[:-1]], device=设备)
+            # 序列的最后一个ID是 "</s>" token, 倒数第二个是目标
+            # 我们需要模型预测目标，所以输入是到[SEP]为止的部分
+            try:
+                # 找到 </s> token 的位置
+                eos_token_id = 分词器.get_vocab()["</s>"]
+                eos_index = 序列.index(eos_token_id)
+                # 真实目标是 </s> 前一个 token
+                真实目标_id = 序列[eos_index - 1]
+                # 输入是到目标之前的所有内容
+                输入_ids = torch.tensor([序列[:eos_index - 1]], device=设备)
+            except (ValueError, IndexError):
+                logger.warning("序列格式不正确，跳过...")
+                continue
 
             输出 = 模型(input_ids=输入_ids)
             logits = 输出.logits
@@ -109,7 +126,7 @@ if __name__ == "__main__":
     
     parser.add_argument("model_name", type=str, help="要评估的模型的名称或路径")
     parser.add_argument("--test_data_path", type=str, default=os.path.join(script_dir, "test_data.jsonl"), help="预处理后的测试集文件路径 (.jsonl)")
-    parser.add_argument("--vocab_path", type=str, default=os.path.join(script_dir, "vocab.txt"), help="词表文件路径")
+    parser.add_argument("--tokenizer_path", type=str, default=os.path.join(script_dir, "tokenizer.json"), help="训练好的分词器文件(tokenizer.json)路径")
     parser.add_argument("--dtype", type=lambda x: getattr(torch, x), default=torch.float16, help="模型的数据类型 (例如 'float16', 'float32')")
     
     args = parser.parse_args()
