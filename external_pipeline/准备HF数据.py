@@ -84,9 +84,10 @@ def 主函数():
     with open(训练输出路径, "w", encoding="utf-8") as 文件:
         for 文本 in 训练字符串列表:
             编码结果 = 分词器.encode(文本, add_special_tokens=False)
-            if len(编码结果.ids) > 训练最长序列:
-                训练最长序列 = len(编码结果.ids)
-            文件.write(json.dumps({"text": 文本, "token_ids": 编码结果.ids}, ensure_ascii=False) + "\n")
+            偏移后 = [i + 1 for i in 编码结果.ids]
+            if len(偏移后) > 训练最长序列:
+                训练最长序列 = len(偏移后)
+            文件.write(json.dumps({"text": 文本, "token_ids": 偏移后}, ensure_ascii=False) + "\n")
 
     测试字符串列表 = 数据帧转为字符串列表(测试数据, 数值型列, 类别型列)
     测试输出路径 = os.path.join(输出目录, "test_data.jsonl")
@@ -94,9 +95,10 @@ def 主函数():
     with open(测试输出路径, "w", encoding="utf-8") as 文件:
         for 文本 in 测试字符串列表:
             编码结果 = 分词器.encode(文本, add_special_tokens=False)
-            if len(编码结果.ids) > 测试最长序列:
-                测试最长序列 = len(编码结果.ids)
-            文件.write(json.dumps({"text": 文本, "token_ids": 编码结果.ids}, ensure_ascii=False) + "\n")
+            偏移后 = [i + 1 for i in 编码结果.ids]
+            if len(偏移后) > 测试最长序列:
+                测试最长序列 = len(偏移后)
+            文件.write(json.dumps({"text": 文本, "token_ids": 偏移后}, ensure_ascii=False) + "\n")
 
     logger.info("5. 生成与外部流水线完全兼容的vocab.txt...")
     最终词表 = 分词器.get_vocab()
